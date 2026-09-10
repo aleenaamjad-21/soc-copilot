@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SOC Copilot v2 — AI-Powered Security Operations</title>
+  <meta name="description" content="SOC Copilot: Multi-agent AI pipeline for security alert triage, correlation, and simulated automated response." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ===== TOP BAR ===== -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">◈</span>
+      <span class="brand-name">SOC Copilot <span class="brand-version">v2</span></span>
+    </div>
+    <div class="topbar-actions">
+      <div id="triageProgressWrap" class="triage-progress-wrap hidden">
+        <span class="progress-label">Pipeline running…</span>
+        <div class="progress-bar-track"><div class="progress-bar-fill" id="triageProgressBar"></div></div>
+        <span class="progress-counts" id="triageProgressCounts"></span>
+      </div>
+      <button id="triageAllBtn" class="btn btn-primary">⚡ Run Pipeline on All</button>
+    </div>
+  </header>
+
+  <main class="layout">
+
+    <!-- ===== STAT CARDS ===== -->
+    <section class="stats-row" id="statsRow">
+      <div class="stat-card">
+        <span class="stat-label">Total Alerts</span>
+        <span class="stat-value" id="statTotal">—</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Triaged</span>
+        <span class="stat-value" id="statTriaged">—</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Incidents</span>
+        <span class="stat-value" id="statIncidents">—</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Rule ↔ AI Agreement</span>
+        <span class="stat-value" id="statAgreement">—</span>
+      </div>
+      <div class="stat-card severity-breakdown">
+        <span class="stat-label">Severity Breakdown (AI)</span>
+        <div class="severity-bars" id="severityBars"></div>
+      </div>
+    </section>
+
+    <!-- ===== TAB BAR ===== -->
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tabAlerts" onclick="switchTab('alerts')">🚨 Alert Queue</button>
+      <button class="tab-btn" id="tabIncidents" onclick="switchTab('incidents')">🔗 Incidents</button>
+      <button class="tab-btn" id="tabAudit" onclick="switchTab('audit')">📋 Audit Trail</button>
+      <button class="tab-btn" id="tabSimulator" onclick="switchTab('simulator')">🛡️ Simulator State</button>
+    </div>
+
+    <!-- ===== WORKSPACE ===== -->
+    <div class="workspace">
+
+      <!-- ─── ALERTS TAB ─── -->
+      <div id="panelAlerts" class="tab-panel active">
+        <div class="split-layout">
+          <!-- Alert Table -->
+          <section class="alert-queue">
+            <div class="section-header">
+              <h2>Alert Queue</h2>
+              <span class="section-badge" id="newAlertBadge"></span>
+            </div>
+            <table class="alert-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Source IP</th>
+                  <th>Threat Score</th>
+                  <th>Rule</th>
+                  <th>AI Severity</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="alertTableBody">
+                <!-- rows injected by app.js -->
+              </tbody>
+            </table>
+          </section>
+
+          <!-- Alert Detail Panel -->
+          <section class="detail-panel" id="detailPanel">
+            <div class="detail-empty">Select an alert to view AI triage details</div>
+          </section>
+        </div>
+      </div>
+
+      <!-- ─── INCIDENTS TAB ─── -->
+      <div id="panelIncidents" class="tab-panel hidden">
+        <div class="split-layout">
+          <section class="incident-list">
+            <div class="section-header"><h2>Correlated Incidents</h2></div>
+            <div id="incidentCards">
+              <div class="empty-state">No incidents yet — run triage to auto-correlate alerts.</div>
+            </div>
+          </section>
+          <section class="detail-panel" id="incidentDetailPanel">
+            <div class="detail-empty">Select an incident to view details and approve response</div>
+          </section>
+        </div>
+      </div>
+
+      <!-- ─── AUDIT TRAIL TAB ─── -->
+      <div id="panelAudit" class="tab-panel hidden">
+        <section class="audit-section">
+          <div class="section-header">
+            <h2>Audit Trail</h2>
+            <button class="btn btn-sm" onclick="fetchAuditLog()">↻ Refresh</button>
+          </div>
+          <table class="audit-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Incident</th>
+                <th>Action</th>
+                <th>Description</th>
+                <th>Actor</th>
+                <th>Outcome</th>
+              </tr>
+            </thead>
+            <tbody id="auditTableBody">
+              <tr><td colspan="6" class="empty-state">No audit log entries yet.</td></tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
+
+      <!-- ─── SIMULATOR STATE TAB ─── -->
+      <div id="panelSimulator" class="tab-panel hidden">
+        <section class="simulator-section">
+          <div class="section-header">
+            <h2>Simulated Firewall State</h2>
+            <button class="btn btn-sm" onclick="fetchSimulatorState()">↻ Refresh</button>
+          </div>
+          <div class="simulator-safety-note">
+            ⚠️ All actions below are <strong>simulated only</strong> — no real infrastructure is affected.
+            State resets on server restart.
+          </div>
+          <div id="simulatorState">
+            <div class="empty-state">No actions executed yet.</div>
+          </div>
+        </section>
+      </div>
+
+    </div><!-- /.workspace -->
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
