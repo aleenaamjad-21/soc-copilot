@@ -12,17 +12,17 @@ Built as an independent portfolio project — a blue-team/DFIR companion to the 
 
 |  |  |
 |---|---|
-| ![Dashboard](screenshots/dashboard.png) | ![Alert Queue](screenshots/alert_queue.png) |
+| ![Dashboard](images/dashboard.png) | ![Alert Queue](images/alert_queue.png) |
 | Dashboard Overview | Alert Queue |
-| ![Alert Detail — pipeline trace](screenshots/alert_detail.png) | ![Alert Detail — AI reasoning & playbook](screenshots/alert_detail_2.png) |
+| ![Alert Detail — pipeline trace](images/alert_detail.png) | ![Alert Detail — AI reasoning & playbook](images/alert_detail_2.png) |
 | Alert Detail (pipeline trace) | Alert Detail (reasoning & playbook) |
-| ![Correlated Incidents](screenshots/incidents.png) | ![Incident Detail — summary](screenshots/incident_detail_1.png) |
+| ![Correlated Incidents](images/incidents.png) | ![Incident Detail — summary](images/incident_detail_1.png) |
 | Correlated Incidents | Incident Detail (AI summary) |
-| ![Incident Detail — playbook steps](screenshots/incident_detail_2.png) | ![Incident Detail — approve](screenshots/incident_detail_3.png) |
+| ![Incident Detail — playbook steps](images/incident_detail_2.png) | ![Incident Detail — approve](images/incident_detail_3.png) |
 | Incident Detail (playbook steps) | Incident Detail (approve & execute) |
-| ![Audit Trail](screenshots/audit_trail.png) | ![Simulator State](screenshots/simulator_state__1_.png) |
+| ![Audit Trail](images/audit_trail.png) | ![Simulator State](images/simulator_state%20(1).png) |
 | Audit Trail | Simulator State (top) |
-| ![Simulator State — action log](screenshots/simulator_state__2_.png) | |
+| ![Simulator State — action log](images/simulator_state%20(2).png) | |
 | Simulator State (action log) | |
 
 ---
