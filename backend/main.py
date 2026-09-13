@@ -16,6 +16,7 @@ v2 changes:
 
 import json
 import logging
+import time
 from typing import List, Optional
 
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Query
@@ -169,6 +170,7 @@ def _run_triage_all_background(alert_ids: list[int]):
                 run_pipeline(alert_id, db)
             except Exception as exc:
                 logger.error("[triage-all] alert=%d failed: %s — skipping", alert_id, exc)
+            time.sleep(6)  # stay under Groq's free-tier TPM limit — each alert can make up to 3 LLM calls
         logger.info("[triage-all] Completed all %d alerts", len(alert_ids))
     finally:
         db.close()

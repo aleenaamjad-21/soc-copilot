@@ -38,6 +38,7 @@ class AlertOut(AlertBase):
     llm_is_false_positive: Optional[bool] = None
     llm_reasoning: Optional[str] = None
     llm_recommended_action: Optional[str] = None
+    mitre_technique: Optional[str] = None
 
     # Enrichment
     threat_intel_score: Optional[float] = None

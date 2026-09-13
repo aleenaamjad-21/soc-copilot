@@ -31,6 +31,7 @@ class Alert(Base):
     llm_is_false_positive = Column(Boolean, nullable=True)
     llm_reasoning = Column(Text, nullable=True)             # short explanation from the model
     llm_recommended_action = Column(Text, nullable=True)
+    mitre_technique = Column(String(100), nullable=True)    # e.g. "T1110 – Brute Force"
 
     # --- Enrichment agent results ---
     threat_intel_score = Column(Float, nullable=True)       # AbuseIPDB 0–100 confidence score

@@ -2,19 +2,19 @@
 agents/enrichment_agent.py
 Agent 1 of 4 in the pipeline.
 
-Responsibility: look up the alert's source_ip against AbuseIPDB to get a
+Responsibility: look up the alert's source_ip against VirusTotal to get a
 threat-intel reputation score. Stores the result in:
-  alert.threat_intel_score   (0–100 abuse confidence, or None)
+  alert.threat_intel_score   (0–100, derived from VT engine detections, or None)
   alert.threat_intel_summary (human-readable description)
 
 Graceful behaviour:
   - Private / RFC1918 IPs → skipped, marked "internal"
-  - Missing ABUSEIPDB_API_KEY → skipped, marked "no API key configured"
+  - Missing VIRUSTOTAL_API_KEY → skipped, marked "no API key configured"
   - API failures (timeout, 429, 5xx) → retried with backoff, then falls back
     to None — does NOT block the rest of the pipeline
 
 Requires:
-  ABUSEIPDB_API_KEY in environment / .env
+  VIRUSTOTAL_API_KEY in environment / .env
 """
 
 import os
@@ -29,14 +29,11 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-ABUSEIPDB_API_KEY = os.environ.get("ABUSEIPDB_API_KEY", "")
-ABUSEIPDB_URL = "https://api.abuseipdb.com/api/v2/check"
+VIRUSTOTAL_API_KEY = os.environ.get("VIRUSTOTAL_API_KEY", "")
+VIRUSTOTAL_URL = "https://www.virustotal.com/api/v3/ip_addresses/{ip}"
 
 # IPs that should never be looked up externally
 _SKIP_VALUES = {"unknown", "internal", "external", "multiple", "localhost", ""}
-
-# How long to look back for reports (max allowed on free tier)
-_LOOKBACK_DAYS = 90
 
 
 def _is_private_ip(ip_str: str) -> bool:
@@ -48,24 +45,25 @@ def _is_private_ip(ip_str: str) -> bool:
         return False
 
 
-def _query_abuseipdb(ip: str, retries: int = 3, delay: int = 2) -> dict | None:
+def _query_virustotal(ip: str, retries: int = 3, delay: int = 2) -> dict | None:
     """
-    Calls AbuseIPDB check endpoint. Returns the parsed 'data' dict on success,
-    None on failure. Uses retry-with-backoff identical to llm_triage.py pattern.
+    Calls VirusTotal's IP address report endpoint. Returns the parsed
+    'data.attributes' dict on success, None on failure. Retry-with-backoff,
+    same pattern used elsewhere in the pipeline.
     """
-    headers = {"Key": ABUSEIPDB_API_KEY, "Accept": "application/json"}
-    params = {"ipAddress": ip, "maxAgeInDays": _LOOKBACK_DAYS, "verbose": False}
+    headers = {"x-apikey": VIRUSTOTAL_API_KEY}
+    url = VIRUSTOTAL_URL.format(ip=ip)
 
     for attempt in range(retries):
         try:
-            resp = requests.get(ABUSEIPDB_URL, headers=headers, params=params, timeout=10)
+            resp = requests.get(url, headers=headers, timeout=10)
 
             if resp.status_code == 200:
-                return resp.json().get("data", {})
+                return resp.json().get("data", {}).get("attributes", {})
 
-            # If quota is exhausted, retrying is pointless
+            # Free tier: 4 req/min — if we hit the limit, retrying immediately is pointless
             if resp.status_code == 429:
-                logger.warning("EnrichmentAgent: AbuseIPDB rate limit hit for %s — skipping", ip)
+                logger.warning("EnrichmentAgent: VirusTotal rate limit hit for %s — skipping", ip)
                 return None
 
             if resp.status_code in (500, 502, 503) and attempt < retries - 1:
@@ -73,7 +71,7 @@ def _query_abuseipdb(ip: str, retries: int = 3, delay: int = 2) -> dict | None:
                 continue
 
             logger.warning(
-                "EnrichmentAgent: AbuseIPDB returned %s for %s — skipping",
+                "EnrichmentAgent: VirusTotal returned %s for %s — skipping",
                 resp.status_code, ip,
             )
             return None
@@ -82,10 +80,32 @@ def _query_abuseipdb(ip: str, retries: int = 3, delay: int = 2) -> dict | None:
             if attempt < retries - 1:
                 time.sleep(delay * (attempt + 1))
                 continue
-            logger.warning("EnrichmentAgent: network error querying AbuseIPDB for %s: %s", ip, exc)
+            logger.warning("EnrichmentAgent: network error querying VirusTotal for %s: %s", ip, exc)
             return None
 
     return None
+
+
+def _score_from_stats(stats: dict) -> float:
+    """
+    Converts VirusTotal's last_analysis_stats (per-engine vote counts) into a
+    single 0-100 score, same scale AbuseIPDB used, so nothing downstream
+    (threatScoreBadge, severity thresholds) needs to change.
+
+    malicious counts fully, suspicious counts at half weight.
+    """
+    malicious = stats.get("malicious", 0)
+    suspicious = stats.get("suspicious", 0)
+    harmless = stats.get("harmless", 0)
+    undetected = stats.get("undetected", 0)
+    timeout = stats.get("timeout", 0)
+
+    total_engines = malicious + suspicious + harmless + undetected + timeout
+    if total_engines == 0:
+        return 0.0
+
+    weighted = malicious + (suspicious * 0.5)
+    return round((weighted / total_engines) * 100, 1)
 
 
 def enrich_alert(alert, db: Session) -> dict:
@@ -119,32 +139,34 @@ def enrich_alert(alert, db: Session) -> dict:
         return result
 
     # --- 2. No API key ---
-    if not ABUSEIPDB_API_KEY:
+    if not VIRUSTOTAL_API_KEY:
         result = {
             "threat_intel_score": None,
-            "threat_intel_summary": "ABUSEIPDB_API_KEY not configured — enrichment skipped",
+            "threat_intel_summary": "VIRUSTOTAL_API_KEY not configured — enrichment skipped",
         }
         _save(alert, db, result)
         logger.info("[EnrichmentAgent] alert=%d skipped (no API key)", alert.id)
         return result
 
     # --- 3. Real lookup ---
-    data = _query_abuseipdb(ip)
+    attrs = _query_virustotal(ip)
 
-    if data is None:
+    if attrs is None:
         result = {
             "threat_intel_score": None,
-            "threat_intel_summary": f"AbuseIPDB lookup failed for {ip} — pipeline continues without enrichment",
+            "threat_intel_summary": f"VirusTotal lookup failed for {ip} — pipeline continues without enrichment",
         }
         _save(alert, db, result)
         logger.warning("[EnrichmentAgent] alert=%d lookup failed for %s", alert.id, ip)
         return result
 
-    score = float(data.get("abuseConfidenceScore", 0))
-    reports = data.get("totalReports", 0)
-    country = data.get("countryCode", "??")
-    isp = data.get("isp", "unknown ISP")
-    usage = data.get("usageType", "unknown usage")
+    stats = attrs.get("last_analysis_stats", {})
+    score = _score_from_stats(stats)
+    malicious = stats.get("malicious", 0)
+    suspicious = stats.get("suspicious", 0)
+    country = attrs.get("country", "??")
+    as_owner = attrs.get("as_owner", "unknown network")
+    reputation = attrs.get("reputation", 0)  # VT community score, can be negative
 
     if score >= 75:
         label = "HIGH RISK"
@@ -156,8 +178,9 @@ def enrich_alert(alert, db: Session) -> dict:
         label = "CLEAN"
 
     summary = (
-        f"{label} — AbuseIPDB score {score:.0f}/100 | "
-        f"{reports} report(s) | Country: {country} | ISP: {isp} | Usage: {usage}"
+        f"{label} — VirusTotal score {score:.0f}/100 | "
+        f"{malicious} malicious / {suspicious} suspicious detection(s) | "
+        f"Country: {country} | Network: {as_owner} | Community reputation: {reputation}"
     )
 
     result = {"threat_intel_score": score, "threat_intel_summary": summary}

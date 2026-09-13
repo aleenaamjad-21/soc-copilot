@@ -1,30 +1,38 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SOC Copilot v2 — AI-Powered Security Operations</title>
-  <meta name="description" content="SOC Copilot: Multi-agent AI pipeline for security alert triage, correlation, and simulated automated response." />
+  <meta name="description"
+    content="SOC Copilot: Multi-agent AI pipeline for security alert triage, correlation, and simulated automated response." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
+  <script src="https://unpkg.com/lucide@latest"></script>
 </head>
+
 <body>
 
   <!-- ===== TOP BAR ===== -->
   <header class="topbar">
     <div class="brand">
-      <span class="brand-mark">◈</span>
+      <i data-lucide="shield-check" class="brand-mark"></i>
       <span class="brand-name">SOC Copilot <span class="brand-version">v2</span></span>
     </div>
     <div class="topbar-actions">
       <div id="triageProgressWrap" class="triage-progress-wrap hidden">
         <span class="progress-label">Pipeline running…</span>
-        <div class="progress-bar-track"><div class="progress-bar-fill" id="triageProgressBar"></div></div>
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill" id="triageProgressBar"></div>
+        </div>
         <span class="progress-counts" id="triageProgressCounts"></span>
       </div>
-      <button id="triageAllBtn" class="btn btn-primary">⚡ Run Pipeline on All</button>
+      <button id="triageAllBtn" class="btn btn-primary"><i data-lucide="zap"></i> Run Pipeline on All</button>
     </div>
   </header>
 
@@ -53,15 +61,17 @@
         <div class="severity-bars" id="severityBars"></div>
       </div>
     </section>
-
     <!-- ===== TAB BAR ===== -->
     <div class="tab-bar">
-      <button class="tab-btn active" id="tabAlerts" onclick="switchTab('alerts')">🚨 Alert Queue</button>
-      <button class="tab-btn" id="tabIncidents" onclick="switchTab('incidents')">🔗 Incidents</button>
-      <button class="tab-btn" id="tabAudit" onclick="switchTab('audit')">📋 Audit Trail</button>
-      <button class="tab-btn" id="tabSimulator" onclick="switchTab('simulator')">🛡️ Simulator State</button>
+      <button class="tab-btn active" id="tabAlerts" onclick="switchTab('alerts')"><i data-lucide="siren"></i> Alert
+        Queue</button>
+      <button class="tab-btn" id="tabIncidents" onclick="switchTab('incidents')"><i data-lucide="link"></i>
+        Incidents</button>
+      <button class="tab-btn" id="tabAudit" onclick="switchTab('audit')"><i data-lucide="clipboard-list"></i> Audit
+        Trail</button>
+      <button class="tab-btn" id="tabSimulator" onclick="switchTab('simulator')"><i data-lucide="shield"></i> Simulator
+        State</button>
     </div>
-
     <!-- ===== WORKSPACE ===== -->
     <div class="workspace">
 
@@ -73,7 +83,30 @@
             <div class="section-header">
               <h2>Alert Queue</h2>
               <span class="section-badge" id="newAlertBadge"></span>
+              <button class="btn btn-sm btn-add-alert" id="addAlertBtn" onclick="openAddAlertModal()">+ Add
+                Alert</button>
             </div>
+
+            <!-- Filter bar -->
+            <div class="filter-bar" id="filterBar">
+              <input type="search" id="filterSearch" class="filter-input" placeholder="Search type, IP, MITRE…"
+                oninput="applyFilters()" />
+              <select id="filterSeverity" class="filter-select" onchange="applyFilters()">
+                <option value="">All severities</option>
+                <option value="Critical">Critical</option>
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+              </select>
+              <select id="filterStatus" class="filter-select" onchange="applyFilters()">
+                <option value="">All statuses</option>
+                <option value="new">New</option>
+                <option value="triaged">Triaged</option>
+              </select>
+              <button class="btn btn-sm" onclick="clearFilters()" id="clearFiltersBtn" style="display:none">✕
+                Clear</button>
+            </div>
+
             <table class="alert-table">
               <thead>
                 <tr>
@@ -82,6 +115,7 @@
                   <th>Threat Score</th>
                   <th>Rule</th>
                   <th>AI Severity</th>
+                  <th>MITRE</th>
                   <th>Status</th>
                 </tr>
               </thead>
@@ -89,6 +123,7 @@
                 <!-- rows injected by app.js -->
               </tbody>
             </table>
+            <div class="filter-empty hidden" id="filterEmpty">No alerts match the current filters.</div>
           </section>
 
           <!-- Alert Detail Panel -->
@@ -102,7 +137,9 @@
       <div id="panelIncidents" class="tab-panel hidden">
         <div class="split-layout">
           <section class="incident-list">
-            <div class="section-header"><h2>Correlated Incidents</h2></div>
+            <div class="section-header">
+              <h2>Correlated Incidents</h2>
+            </div>
             <div id="incidentCards">
               <div class="empty-state">No incidents yet — run triage to auto-correlate alerts.</div>
             </div>
@@ -132,7 +169,9 @@
               </tr>
             </thead>
             <tbody id="auditTableBody">
-              <tr><td colspan="6" class="empty-state">No audit log entries yet.</td></tr>
+              <tr>
+                <td colspan="6" class="empty-state">No audit log entries yet.</td>
+              </tr>
             </tbody>
           </table>
         </section>
@@ -146,8 +185,8 @@
             <button class="btn btn-sm" onclick="fetchSimulatorState()">↻ Refresh</button>
           </div>
           <div class="simulator-safety-note">
-            ⚠️ All actions below are <strong>simulated only</strong> — no real infrastructure is affected.
-            State resets on server restart.
+            <i data-lucide="triangle-alert"></i> All actions below are <strong>simulated only</strong> — no real
+            infrastructure is affected. State resets on server restart.
           </div>
           <div id="simulatorState">
             <div class="empty-state">No actions executed yet.</div>
@@ -159,6 +198,43 @@
 
   </main>
 
+  <!-- ===== ADD ALERT MODAL ===== -->
+  <div id="addAlertModal" class="modal-overlay hidden" onclick="closeAddAlertModal(event)">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-header">
+        <span class="modal-title" id="modalTitle">Add New Alert</span>
+        <button class="modal-close-btn" onclick="closeAddAlertModal()" aria-label="Close">✕</button>
+      </div>
+      <form id="addAlertForm" onsubmit="submitAddAlert(event)">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="formAlertType">Alert Type <span class="required">*</span></label>
+            <input id="formAlertType" type="text" class="form-input" placeholder="e.g. Brute Force, Port Scan"
+              required />
+          </div>
+          <div class="form-group">
+            <label for="formSourceIp">Source IP</label>
+            <input id="formSourceIp" type="text" class="form-input" placeholder="e.g. 192.168.1.55" />
+          </div>
+          <div class="form-group">
+            <label for="formDestIp">Destination IP</label>
+            <input id="formDestIp" type="text" class="form-input" placeholder="e.g. 10.0.0.1" />
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:14px">
+          <label for="formRawLog">Raw Log / Description <span class="required">*</span></label>
+          <textarea id="formRawLog" class="form-textarea" rows="4"
+            placeholder="Paste the raw log line or describe the event…" required></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn" onclick="closeAddAlertModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="addAlertSubmitBtn">Add Alert</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
+
 </html>

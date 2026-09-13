@@ -1,8 +1,8 @@
 // app.js — SOC Copilot v2
-// Talks to the FastAPI backend (http://localhost:8000) and renders the full dashboard.
+// Talks to the FastAPI backend (http://localhost:8001) and renders the full dashboard.
 // No framework — plain DOM updates stay readable at this scale.
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = "http://localhost:8001";
 
 let alerts = [];
 let incidents = [];
@@ -22,7 +22,7 @@ function switchTab(name) {
 
   // Lazy-load tab data on first switch
   if (name === "incidents") fetchIncidents();
-  if (name === "audit")     fetchAuditLog();
+  if (name === "audit") fetchAuditLog();
   if (name === "simulator") fetchSimulatorState();
 }
 
@@ -35,7 +35,7 @@ function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 async function fetchAlerts() {
   const res = await fetch(`${API_BASE}/alerts`);
   alerts = await res.json();
-  renderTable();
+  applyFilters();   // re-apply active filters whenever data is refreshed
 }
 
 async function fetchStats() {
@@ -68,6 +68,48 @@ async function fetchTriageStatus() {
 }
 
 // ============================================================
+// FILTER BAR
+// ============================================================
+
+function applyFilters() {
+  const search = (document.getElementById("filterSearch").value || "").toLowerCase().trim();
+  const severity = document.getElementById("filterSeverity").value;
+  const status = document.getElementById("filterStatus").value;
+
+  const hasFilter = search || severity || status;
+  document.getElementById("clearFiltersBtn").style.display = hasFilter ? "inline-flex" : "none";
+
+  const filtered = alerts.filter(a => {
+    if (severity && a.llm_severity !== severity) return false;
+    if (status && a.status !== status) return false;
+    if (search) {
+      const haystack = [
+        a.alert_type,
+        a.source_ip,
+        a.dest_ip,
+        a.mitre_technique,
+        a.llm_severity,
+        a.status,
+      ].filter(Boolean).join(" ").toLowerCase();
+      if (!haystack.includes(search)) return false;
+    }
+    return true;
+  });
+
+  renderTable(filtered);
+
+  const empty = document.getElementById("filterEmpty");
+  empty.classList.toggle("hidden", filtered.length > 0);
+}
+
+function clearFilters() {
+  document.getElementById("filterSearch").value = "";
+  document.getElementById("filterSeverity").value = "";
+  document.getElementById("filterStatus").value = "";
+  applyFilters();
+}
+
+// ============================================================
 // TRIAGE ACTIONS
 // ============================================================
 
@@ -78,7 +120,7 @@ async function triageOne(alertId) {
   const res = await fetch(`${API_BASE}/alerts/${alertId}/triage`, { method: "POST" });
   const updated = await res.json();
   alerts = alerts.map(a => (a.id === updated.id ? updated : a));
-  renderTable();
+  applyFilters();
   renderDetail(updated);
   fetchStats();
   fetchIncidents();
@@ -95,14 +137,16 @@ async function triageAll() {
   if (resp.status === "already_running") {
     showToast("A triage run is already in progress.", "info");
     btn.disabled = false;
-    btn.textContent = "⚡ Run Pipeline on All";
+    btn.innerHTML = '<i data-lucide="zap"></i> Run Pipeline on All';
+    lucide.createIcons();
     return;
   }
 
   if (resp.status === "nothing_to_do") {
     showToast("All alerts are already triaged.", "success");
     btn.disabled = false;
-    btn.textContent = "⚡ Run Pipeline on All";
+    btn.innerHTML = '<i data-lucide="zap"></i> Run Pipeline on All';
+    lucide.createIcons();
     return;
   }
 
@@ -124,7 +168,7 @@ function startProgressPolling() {
     document.getElementById("triageProgressCounts").textContent =
       `${status.triaged} / ${status.total} triaged`;
 
-    // Refresh alert table live
+    // Refresh alert table live during polling
     await fetchAlerts();
     fetchStats();
 
@@ -133,7 +177,8 @@ function startProgressPolling() {
       wrap.classList.add("hidden");
       const btn = document.getElementById("triageAllBtn");
       btn.disabled = false;
-      btn.textContent = "⚡ Run Pipeline on All";
+      btn.innerHTML = '<i data-lucide="zap"></i> Run Pipeline on All';
+      lucide.createIcons();
       showToast("All alerts triaged! Refreshing incidents…", "success");
       fetchIncidents();
     }
@@ -155,7 +200,11 @@ async function approveResponse(incidentId) {
 
   if (!res.ok) {
     showToast(result.detail || "Approval failed", "error");
-    if (btn) { btn.disabled = false; btn.textContent = "✅ Approve & Execute Response"; }
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<i data-lucide="check-circle"></i> Approve & Execute Response';
+      lucide.createIcons();
+    }
     return;
   }
 
@@ -168,6 +217,76 @@ async function approveResponse(incidentId) {
 }
 
 // ============================================================
+// ADD ALERT MODAL
+// ============================================================
+
+function openAddAlertModal() {
+  document.getElementById("addAlertModal").classList.remove("hidden");
+  document.getElementById("formAlertType").focus();
+}
+
+function closeAddAlertModal(e) {
+  // If called from overlay click, only close if the overlay itself was clicked
+  if (e && e.target !== document.getElementById("addAlertModal")) return;
+  document.getElementById("addAlertModal").classList.add("hidden");
+  document.getElementById("addAlertForm").reset();
+}
+
+async function submitAddAlert(e) {
+  e.preventDefault();
+  const btn = document.getElementById("addAlertSubmitBtn");
+  btn.disabled = true;
+  btn.textContent = "Adding…";
+
+  const payload = {
+    alert_type: document.getElementById("formAlertType").value.trim(),
+    source_ip: document.getElementById("formSourceIp").value.trim() || null,
+    dest_ip: document.getElementById("formDestIp").value.trim() || null,
+    raw_log: document.getElementById("formRawLog").value.trim(),
+  };
+
+  try {
+    const res = await fetch(`${API_BASE}/alerts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      showToast(err.detail || "Failed to add alert", "error");
+      return;
+    }
+
+    const newAlert = await res.json();
+    alerts.unshift(newAlert);
+    applyFilters();
+    fetchStats();
+    showToast(`Alert "${newAlert.alert_type}" added successfully.`, "success");
+    document.getElementById("addAlertModal").classList.add("hidden");
+    document.getElementById("addAlertForm").reset();
+
+    // Auto-select the new alert so the analyst can immediately see it
+    selectedAlertId = newAlert.id;
+    applyFilters();
+    renderDetail(newAlert);
+  } catch (err) {
+    showToast("Network error — could not add alert.", "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Add Alert";
+  }
+}
+
+// Close modal on Escape key
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") {
+    document.getElementById("addAlertModal").classList.add("hidden");
+    document.getElementById("addAlertForm").reset();
+  }
+});
+
+// ============================================================
 // RENDERING — ALERTS
 // ============================================================
 
@@ -176,7 +295,7 @@ function threatScoreBadge(score) {
   const val = Math.round(score);
   if (val >= 75) return `<span class="badge badge-critical">${val}</span>`;
   if (val >= 25) return `<span class="badge badge-high">${val}</span>`;
-  if (val > 0)   return `<span class="badge badge-medium">${val}</span>`;
+  if (val > 0) return `<span class="badge badge-medium">${val}</span>`;
   return `<span class="badge badge-low">Clean</span>`;
 }
 
@@ -185,23 +304,33 @@ function severityBadge(severity) {
   return `<span class="badge badge-${severity.toLowerCase()}">${severity}</span>`;
 }
 
+function mitreBadge(technique) {
+  if (!technique) return `<span class="badge badge-pending" style="font-size:0.65rem">—</span>`;
+  // Extract just the technique ID for the compact table cell (e.g. "T1110")
+  const id = technique.match(/^(T\d+)/)?.[1] ?? technique.split("–")[0].trim();
+  return `<span class="badge badge-mitre" title="${technique}">${id}</span>`;
+}
+
 function statusDot(status) {
   return `<span class="status-dot status-${status}"></span>${status}`;
 }
 
-function renderTable() {
+function renderTable(filteredAlerts) {
+  // If called without argument, use the full set
+  const source = filteredAlerts ?? alerts;
   const tbody = document.getElementById("alertTableBody");
   const newCount = alerts.filter(a => a.status === "new").length;
   const badge = document.getElementById("newAlertBadge");
   badge.textContent = newCount > 0 ? `${newCount} new` : "";
 
-  tbody.innerHTML = alerts.map(a => `
+  tbody.innerHTML = source.map(a => `
     <tr data-id="${a.id}" class="${a.id === selectedAlertId ? "selected" : ""}">
       <td><span class="alert-type">${a.alert_type}</span></td>
       <td><code class="ip-code">${a.source_ip || "—"}</code></td>
       <td>${threatScoreBadge(a.threat_intel_score)}</td>
       <td>${severityBadge(a.rule_severity)}</td>
       <td>${severityBadge(a.llm_severity)}</td>
+      <td>${mitreBadge(a.mitre_technique)}</td>
       <td class="status-cell">${statusDot(a.status)}</td>
     </tr>
   `).join("");
@@ -209,7 +338,7 @@ function renderTable() {
   tbody.querySelectorAll("tr").forEach(row => {
     row.addEventListener("click", () => {
       selectedAlertId = parseInt(row.dataset.id, 10);
-      renderTable();
+      renderTable(source);
       renderDetail(alerts.find(a => a.id === selectedAlertId));
     });
   });
@@ -231,7 +360,8 @@ function renderDetail(alert) {
       <code>${alert.source_ip || "unknown"}</code>
       <span class="arrow">→</span>
       <code>${alert.dest_ip || "unknown"}</code>
-      ${alert.incident_id ? `<span class="incident-chip">🔗 Incident #${alert.incident_id}</span>` : ""}
+      ${alert.incident_id ? `<span class="incident-chip"><i data-lucide="link"></i> Incident #${alert.incident_id}</span>` : ""}
+      ${alert.mitre_technique ? `<span class="mitre-chip" title="MITRE ATT&CK">${alert.mitre_technique}</span>` : ""}
     </div>
 
     <!-- Pipeline step trace -->
@@ -267,14 +397,21 @@ function renderDetail(alert) {
       <div class="compare-col">
         <div class="compare-col-label">Rule-Based</div>
         ${severityBadge(alert.rule_severity)}
-        ${alert.rule_is_false_positive ? '<div class="fp-flag">⚐ likely FP</div>' : ''}
+        ${alert.rule_is_false_positive ? '<div class="fp-flag"><i data-lucide="flag"></i> likely FP</div>' : ''}
       </div>
       <div class="compare-col">
         <div class="compare-col-label">AI Triage</div>
         ${severityBadge(alert.llm_severity)}
-        ${alert.llm_is_false_positive ? '<div class="fp-flag">⚐ likely FP</div>' : ''}
+        ${alert.llm_is_false_positive ? '<div class="fp-flag"><i data-lucide="flag"></i> likely FP</div>' : ''}
       </div>
     </div>
+
+    ${alert.mitre_technique ? `
+      <div class="detail-block">
+        <div class="detail-block-label">MITRE ATT&CK Technique</div>
+        <div class="mitre-full-badge">${alert.mitre_technique}</div>
+      </div>
+    ` : ""}
 
     ${alert.llm_reasoning ? `
       <div class="detail-block">
@@ -307,11 +444,13 @@ function renderDetail(alert) {
       </div>
     ` : ""}
 
-    ${needsTriage ? `<button class="btn btn-triage" id="triageOneBtn">▶ Run AI Pipeline</button>` : ""}
+    ${needsTriage ? `<button class="btn btn-triage" id="triageOneBtn"><i data-lucide="play"></i> Run AI Pipeline</button>` : ""}
   `;
 
   const triageBtn = document.getElementById("triageOneBtn");
   if (triageBtn) triageBtn.addEventListener("click", () => triageOne(alert.id));
+
+  lucide.createIcons();
 }
 
 // ============================================================
@@ -379,6 +518,7 @@ function renderIncidentDetail(incident) {
             <span class="badge badge-${(a.llm_severity || 'pending').toLowerCase()}">${a.llm_severity || '?'}</span>
             <span class="alert-type">${a.alert_type}</span>
             <code class="ip-code">${a.source_ip || '—'}</code>
+            ${a.mitre_technique ? `<span class="badge badge-mitre" style="font-size:0.65rem" title="${a.mitre_technique}">${a.mitre_technique.match(/^(T\d+)/)?.[1] ?? ''}</span>` : ''}
           </div>
         `).join("")}
       </div>
@@ -400,10 +540,10 @@ function renderIncidentDetail(incident) {
     ` : `<div class="detail-block"><div class="detail-block-label">Playbook</div><div style="color:var(--text-muted)">No playbook yet — triage linked alerts first.</div></div>`}
 
     ${canApprove ? `
-      <button class="btn btn-approve" id="approveBtn-${incident.id}">✅ Approve & Execute Response</button>
+      <button class="btn btn-approve" id="approveBtn-${incident.id}"><i data-lucide="check-circle"></i> Approve & Execute Response</button>
       <div class="approve-note">This executes against the <strong>simulated firewall only</strong>. No real infrastructure is affected.</div>
     ` : incident.response_status === "executed" ? `
-      <div class="executed-note">✓ Response has been executed. See Audit Trail for details.</div>
+      <div class="executed-note"><i data-lucide="check"></i> Response has been executed. See Audit Trail for details.</div>
     ` : ""}
   `;
 
@@ -411,6 +551,8 @@ function renderIncidentDetail(incident) {
     document.getElementById(`approveBtn-${incident.id}`)
       .addEventListener("click", () => approveResponse(incident.id));
   }
+
+  lucide.createIcons();
 }
 
 // ============================================================
@@ -451,26 +593,28 @@ function renderSimulatorState(state) {
   `;
 
   el.innerHTML = `
-    ${section("🚫 Blocked IPs", state.blocked_ips, "None blocked yet",
-      ip => `<div class="sim-item"><code>${ip}</code></div>`)}
+    ${section('<i data-lucide="ban"></i> Blocked IPs', state.blocked_ips, "None blocked yet",
+    ip => `<div class="sim-item"><code>${ip}</code></div>`)}
 
-    ${section("🔒 Isolated Hosts", state.isolated_hosts, "None isolated yet",
+    ${section('<i data-lucide="lock"></i> Isolated Hosts', state.isolated_hosts, "None isolated yet",
       h => `<div class="sim-item"><code>${h}</code></div>`)}
 
-    ${section("🔬 Forensics Jobs", state.forensics_jobs, "None started",
-      j => `<div class="sim-item"><code>${j.host}</code> <span class="sim-meta">${j.started_at}</span></div>`)}
+    ${section('<i data-lucide="flask-conical"></i> Forensics Jobs', state.forensics_jobs, "None started",
+        j => `<div class="sim-item"><code>${j.host}</code> <span class="sim-meta">${j.started_at}</span></div>`)}
 
-    ${section("🔔 Analyst Notifications", state.analyst_notifications, "None sent",
-      n => `<div class="sim-item">${n.message} <span class="sim-meta">${n.sent_at}</span></div>`)}
+    ${section('<i data-lucide="bell"></i> Analyst Notifications', state.analyst_notifications, "None sent",
+          n => `<div class="sim-item">${n.message} <span class="sim-meta">${n.sent_at}</span></div>`)}
 
     <div class="sim-section">
-      <div class="sim-section-title">📜 Action Log (last 50)</div>
+      <div class="sim-section-title"><i data-lucide="clipboard-list"></i> Action Log (last 50)</div>
       ${state.action_log.length
-        ? `<div class="action-log">${state.action_log.slice().reverse().map(l =>
-            `<div class="action-log-entry">${l}</div>`).join("")}</div>`
-        : `<div class="sim-empty">No actions yet</div>`}
+      ? `<div class="action-log">${state.action_log.slice().reverse().map(l =>
+        `<div class="action-log-entry">${l}</div>`).join("")}</div>`
+      : `<div class="sim-empty">No actions yet</div>`}
     </div>
   `;
+
+  lucide.createIcons();
 }
 
 // ============================================================
@@ -539,3 +683,4 @@ document.getElementById("triageAllBtn").addEventListener("click", triageAll);
 
 fetchAlerts();
 fetchStats();
+lucide.createIcons();
