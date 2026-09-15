@@ -2,7 +2,7 @@
 // Talks to the FastAPI backend (http://localhost:8001) and renders the full dashboard.
 // No framework — plain DOM updates stay readable at this scale.
 
-const API_BASE = "http://localhost:8001";
+const API_BASE = "https://soc-copilot-production.up.railway.app";
 
 let alerts = [];
 let incidents = [];
